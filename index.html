@@ -1,1 +1,514 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>对话助手</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+                'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .main-container {
+            display: flex;
+            gap: 20px;
+            width: 100%;
+            max-width: 1200px;
+            height: 700px;
+        }
+
+        .sidebar {
+            width: 300px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .sidebar h3 {
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 16px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .prompt-section,
+        .preset-prompts {
+            margin-bottom: 20px;
+        }
+
+        .prompt-label {
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 8px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 12px;
+            font-family: 'Courier New', monospace;
+            resize: vertical;
+            min-height: 100px;
+            transition: border-color 0.3s;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .preset-btn {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 8px;
+            background: #f0f0f0;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            color: #333;
+            transition: all 0.3s;
+        }
+
+        .preset-btn:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .container {
+            flex: 1;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 12px 12px 0 0;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .chat-box {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            display: flex;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.user {
+            justify-content: flex-end;
+        }
+
+        .message.ai {
+            justify-content: flex-start;
+        }
+
+        .message-content {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 8px;
+            word-wrap: break-word;
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+
+        .message.user .message-content {
+            background: #667eea;
+            color: white;
+            border-bottom-right-radius: 2px;
+        }
+
+        .message.ai .message-content {
+            background: white;
+            color: #333;
+            border: 1px solid #e0e0e0;
+            border-bottom-left-radius: 2px;
+        }
+
+        .input-area {
+            padding: 20px;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            gap: 10px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        button {
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #5568d3;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #667eea;
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+            margin-right: 5px;
+        }
+
+        @keyframes pulse {
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .model-info {
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .model-info span {
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        /* ---- 新增编辑相关样式 ---- */
+        .message.user button {
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            margin-left: 8px;
+        }
+
+        .message.user textarea {
+            font-size: 14px;
+            padding: 6px;
+            width: 100%;
+            min-height: 60px;
+        }
+
+        .message.user button + button {
+            margin-left: 6px;
+        }
+    </style>
+</head>
+<body>
+<div class="main-container">
+    <!-- 侧边栏 -->
+    <div class="sidebar">
+        <h3>⚙️ 设置</h3>
+
+        <div class="model-info">
+            模型: <span id="modelName">my-local-model</span>
+        </div>
+
+        <div class="prompt-section">
+            <div class="prompt-label">系统提示词</div>
+            <textarea id="systemPrompt"
+                placeholder="输入系统级提示词，用于指导AI的行为...">你是一个有用的AI助手。请用中文回答问题。</textarea>
+        </div>
+
+        <div class="preset-prompts">
+            <div class="prompt-label">预设提示词</div>
+            <button class="preset-btn"
+                onclick="setPreset('你是一个专业的技术顾问。请用简洁的方式解答技术问题。')">💻 技术顾问</button>
+            <button class="preset-btn"
+                onclick="setPreset('你是一个创意写作助手。请帮助用户进行创意写作和头脑风暴。')">✍️ 创意写手</button>
+            <button class="preset-btn"
+                onclick="setPreset('你是一个学习辅导老师。请用易懂的方式解释概念和知识点。')">📚 学习助手</button>
+            <button class="preset-btn"
+                onclick="setPreset('你是一个有趣的聊天伙伴。请用轻松、幽默的方式交流。')">😄 聊天伙伴</button>
+            <button class="preset-btn"
+                onclick="setPreset('你是一个有用的AI助手。请用中文回答问题。')">🔄 重置</button>
+        </div>
+    </div>
+
+    <!-- 主聊天区域 -->
+    <div class="container">
+        <div class="header">
+            <h1>对话助手</h1>
+            <p>与本地AI对话</p>
+        </div>
+
+        <div class="chat-box" id="chatBox"></div>
+
+        <div class="input-area">
+            <input type="text" id="userInput" placeholder="输入你的问题..." autocomplete="off">
+            <button id="sendBtn">发送</button>
+        </div>
+    </div>
+</div>
+
+<script>
+/* ---------- 基础配置 ---------- */
+const chatBox = document.getElementById('chatBox');
+const userInput = document.getElementById('userInput');
+const sendBtn = document.getElementById('sendBtn');
+const systemPromptEl = document.getElementById('systemPrompt');
+const modelNameEl = document.getElementById('modelName');
+
+const OLLAMA_API = 'http://localhost:11434/api/generate';
+let MODEL = 'my-model';               // 请改成你的模型名称!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+modelNameEl.textContent = MODEL;
+
+/* ---------- 预设提示词 ---------- */
+function setPreset(prompt) {
+    systemPromptEl.value = prompt;
+}
+
+/* ---------- 对话历史（已确认的） ---------- */
+const chatHistory = [];   // [{role:'user'|'ai', content:string}]
+
+/* ---------- 创建编辑按钮 ---------- */
+function createEditBtn(idx) {
+    const btn = document.createElement('button');
+    btn.textContent = '✏️';
+    btn.title = '编辑此条消息';
+    btn.onclick = () => editMessage(idx);
+    return btn;
+}
+
+/* ---------- 添加消息到页面并记录历史 ---------- */
+function addMessage(text, sender, confirmed = true) {
+    const idx = chatHistory.length;
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `message ${sender}`;
+    msgDiv.dataset.index = idx;
+
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'message-content';
+    contentDiv.textContent = text;
+    msgDiv.appendChild(contentDiv);
+
+    if (sender === 'user' && confirmed) {
+        msgDiv.appendChild(createEditBtn(idx));
+        chatHistory.push({ role: 'user', content: text });
+    } else if (sender === 'ai') {
+        chatHistory.push({ role: 'ai', content: text });
+    }
+
+    chatBox.appendChild(msgDiv);
+    chatBox.scrollTop = chatBox.scrollHeight;
+    return { msgDiv, contentDiv };
+}
+
+/* ---------- 发送新用户消息 ---------- */
+async function sendMessage() {
+    const message = userInput.value.trim();
+    if (!message) return;
+
+    addMessage(message, 'user');
+    userInput.value = '';
+    sendBtn.disabled = true;
+
+    try {
+        await generateResponse();   // 生成对应的 AI 回复
+    } catch (e) {
+        console.error(e);
+        addMessage(`❌ 错误: ${e.message}`, 'ai');
+    } finally {
+        sendBtn.disabled = false;
+        userInput.focus();
+    }
+}
+
+/* ---------- 生成 AI 响应（流式） ---------- */
+async function generateResponse() {
+    const systemPrompt = systemPromptEl.value.trim();
+    const parts = [];
+
+    if (systemPrompt) parts.push(systemPrompt);
+
+    chatHistory.forEach(item => {
+        parts.push(item.role === 'user' ? `用户: ${item.content}` : `AI: ${item.content}`);
+    });
+
+    const fullPrompt = parts.join('\n');
+
+    const response = await fetch(OLLAMA_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: MODEL, prompt: fullPrompt, stream: true })
+    });
+
+    if (!response.ok) throw new Error(`API 错误: ${response.status}`);
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let aiText = '';
+
+    // 占位消息，后续会被实时更新
+    const { contentDiv } = addMessage('', 'ai', false);
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+                const json = JSON.parse(line);
+                aiText += json.response;
+                contentDiv.textContent = aiText;
+                chatBox.scrollTop = chatBox.scrollHeight;
+            } catch (_) { /* 忽略非 JSON 行 */ }
+        }
+    }
+
+    // 将最终 AI 回复写入历史
+    chatHistory.push({ role: 'ai', content: aiText });
+}
+
+/* ---------- 编辑已有用户消息 ---------- */
+function editMessage(idx) {
+    const msgDiv = document.querySelector(`.message.user[data-index="${idx}"]`);
+    const oldContent = chatHistory[idx].content;
+
+    const textarea = document.createElement('textarea');
+    textarea.value = oldContent;
+
+    const saveBtn = document.createElement('button');
+    saveBtn.textContent = '保存';
+    saveBtn.onclick = () => applyEdit(idx, textarea.value);
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = '取消';
+    cancelBtn.onclick = () => cancelEdit(idx, oldContent);
+
+    msgDiv.innerHTML = '';
+    msgDiv.appendChild(textarea);
+    msgDiv.appendChild(saveBtn);
+    msgDiv.appendChild(cancelBtn);
+    textarea.focus();
+}
+
+/* ---------- 取消编辑 ---------- */
+function cancelEdit(idx, original) {
+    const { msgDiv } = addMessage(original, 'user', false);
+    const oldDiv = document.querySelector(`.message.user[data-index="${idx}"]`);
+    oldDiv.replaceWith(msgDiv);
+}
+
+/* ---------- 保存编辑并重新生成后续内容 ---------- */
+async function applyEdit(idx, newText) {
+    // 更新历史记录
+    chatHistory[idx].content = newText;
+
+    // 重新渲染该条用户消息（不可编辑状态）
+    const { msgDiv } = addMessage(newText, 'user', false);
+    const oldDiv = document.querySelector(`.message.user[data-index="${idx}"]`);
+    oldDiv.replaceWith(msgDiv);
+
+    // 删除该条之后的所有 AI 消息（因为它们基于旧上下文）
+    const toRemove = [...chatBox.querySelectorAll(`.message[data-index]`)]
+        .filter(el => Number(el.dataset.index) > idx && el.classList.contains('ai'));
+    toRemove.forEach(el => el.remove());
+
+    // 截断历史，只保留到 idx（包括该用户消息）
+    chatHistory.splice(idx + 1);
+
+    // 重新生成从该用户消息开始的后续 AI 回复
+    await generateResponse();
+}
+
+/* ---------- 事件绑定 ---------- */
+sendBtn.addEventListener('click', sendMessage);
+userInput.addEventListener('keypress', e => {
+    if (e.key === 'Enter') sendMessage();
+});
+userInput.focus();
+</script>
+</body>
+</html>
 
