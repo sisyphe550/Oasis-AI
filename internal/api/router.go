@@ -8,11 +8,12 @@ import (
 const Version = "0.1.0"
 
 // NewRouter 构建并返回顶层路由多路复用器。
-func NewRouter() *http.ServeMux {
+// handler 持有编排引擎引用，由 main.go 完成依赖组装后注入。
+func NewRouter(handler *Handler) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/health", handleHealth)
-	mux.HandleFunc("POST /api/chat", handleChatPlaceholder)
+	mux.HandleFunc("POST /api/chat", handler.HandleChat)
 
 	// 将 web/ 目录下的前端静态资源挂载到根路径
 	mux.Handle("/", http.FileServer(http.Dir("web")))
@@ -31,23 +32,6 @@ func handleHealth(w http.ResponseWriter, _ *http.Request) {
 		},
 	}
 	writeJSON(w, http.StatusOK, resp)
-}
-
-func handleChatPlaceholder(w http.ResponseWriter, r *http.Request) {
-	var req ChatRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, ChatResponse{
-			Status: http.StatusBadRequest,
-			Error:  "invalid request body: " + err.Error(),
-		})
-		return
-	}
-
-	writeJSON(w, http.StatusNotImplemented, ChatResponse{
-		Status:  http.StatusNotImplemented,
-		Content: "chat endpoint not yet implemented",
-		Model:   "none",
-	})
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
