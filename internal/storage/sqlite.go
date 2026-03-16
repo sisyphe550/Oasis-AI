@@ -15,6 +15,15 @@ import (
 
 // MessageStore 是结构化对话存储的统一抽象接口。
 type MessageStore interface {
+	// EnsureConversation 确保会话记录存在，并管理该会话的规则书（System Prompt）。
+	// 返回 (最终的 sessionID, 最终生效的 systemPrompt, error)。
+	//
+	// 行为规则：
+	//   - sessionID 为空          → 新建会话，写入 systemPrompt，返回新 ID
+	//   - sessionID 存在且 systemPrompt 非空 → 用新值 UPDATE 数据库，返回新值
+	//   - sessionID 存在且 systemPrompt 为空 → 从数据库读取历史值并返回
+	EnsureConversation(ctx context.Context, sessionID, systemPrompt string) (string, string, error)
+
 	// SaveMessage 将一条消息落盘到指定对话。
 	// role 应为 "user" 或 "assistant"。
 	SaveMessage(ctx context.Context, conversationID, role, content string) error
@@ -22,9 +31,6 @@ type MessageStore interface {
 	// GetRecentMessages 按时间倒序获取指定对话的最近 N 条消息，
 	// 结果按时间正序返回，方便直接拼入 Prompt。
 	GetRecentMessages(ctx context.Context, conversationID string, limit int) ([]MessageRecord, error)
-
-	// EnsureConversation 确保对话记录存在，不存在则创建并返回其 ID。
-	EnsureConversation(ctx context.Context, conversationID, chainID string) (string, error)
 
 	// Close 关闭数据库连接，应在服务关闭时调用。
 	Close() error
@@ -40,12 +46,13 @@ type MessageRecord struct {
 }
 
 // ─── DDL ─────────────────────────────────────────────────────────────────────
+// 注意：修改表结构后，需删除旧的 data/oasis.db 让 DDL 重新执行。
 
 const ddl = `
 CREATE TABLE IF NOT EXISTS conversations (
-    id         TEXT PRIMARY KEY,
-    chain_id   TEXT NOT NULL DEFAULT '',
-    created_at DATETIME NOT NULL DEFAULT (datetime('now'))
+    id            TEXT PRIMARY KEY,
+    system_prompt TEXT NOT NULL DEFAULT '',
+    created_at    DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS messages (
@@ -67,7 +74,6 @@ type SQLiteDB struct {
 }
 
 // InitDB 在 dataDir 目录下打开（或创建）oasis.db，并自动执行建表 DDL。
-// dataDir 通常为项目根目录下的 "data/" 文件夹。
 func InitDB(dataDir string) (*SQLiteDB, error) {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, fmt.Errorf("InitDB mkdir: %w", err)
@@ -98,22 +104,66 @@ func InitDB(dataDir string) (*SQLiteDB, error) {
 	return &SQLiteDB{db: db}, nil
 }
 
-// EnsureConversation 确保对话存在，不存在则以给定 ID 创建。
-// 若 conversationID 为空，则自动生成一个新 ID 并返回。
-func (s *SQLiteDB) EnsureConversation(ctx context.Context, conversationID, chainID string) (string, error) {
-	if conversationID == "" {
-		conversationID = newUUID()
+// EnsureConversation 实现会话绑定型规则书的核心逻辑：
+//
+//  1. sessionID 为空 → 新建会话，生成 UUID，写入 systemPrompt，返回之
+//  2. sessionID 存在，但数据库中无此记录 → 以此 ID 创建新会话，写入 systemPrompt，返回之
+//  3. sessionID 存在，systemPrompt 非空 → UPDATE 该会话的规则书，返回新值
+//  4. sessionID 存在，systemPrompt 为空 → SELECT 历史规则书并返回（维持上次设定）
+func (s *SQLiteDB) EnsureConversation(ctx context.Context, sessionID, systemPrompt string) (string, string, error) {
+	// 场景 1：全新会话
+	if sessionID == "" {
+		sessionID = newUUID()
+		if err := s.insertConversation(ctx, sessionID, systemPrompt); err != nil {
+			return "", "", err
+		}
+		return sessionID, systemPrompt, nil
 	}
 
-	// INSERT OR IGNORE 保持幂等：相同 ID 已存在时不报错
+	// 查询会话是否已存在
+	var saved string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT system_prompt FROM conversations WHERE id = ?`, sessionID,
+	).Scan(&saved)
+
+	if err == sql.ErrNoRows {
+		// 场景 2：ID 已由前端指定，但数据库中尚无记录
+		if err := s.insertConversation(ctx, sessionID, systemPrompt); err != nil {
+			return "", "", err
+		}
+		return sessionID, systemPrompt, nil
+	}
+	if err != nil {
+		return "", "", fmt.Errorf("EnsureConversation query: %w", err)
+	}
+
+	// 会话已存在
+	if systemPrompt != "" {
+		// 场景 3：前端传入了新规则书，UPDATE 并覆盖
+		_, err := s.db.ExecContext(ctx,
+			`UPDATE conversations SET system_prompt = ? WHERE id = ?`,
+			systemPrompt, sessionID,
+		)
+		if err != nil {
+			return "", "", fmt.Errorf("EnsureConversation update: %w", err)
+		}
+		return sessionID, systemPrompt, nil
+	}
+
+	// 场景 4：前端未传规则书，返回数据库中保存的历史值
+	return sessionID, saved, nil
+}
+
+// insertConversation 是内部辅助方法，执行 conversations 表的插入。
+func (s *SQLiteDB) insertConversation(ctx context.Context, id, systemPrompt string) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO conversations(id, chain_id) VALUES (?, ?)`,
-		conversationID, chainID,
+		`INSERT INTO conversations(id, system_prompt) VALUES (?, ?)`,
+		id, systemPrompt,
 	)
 	if err != nil {
-		return "", fmt.Errorf("EnsureConversation: %w", err)
+		return fmt.Errorf("insertConversation: %w", err)
 	}
-	return conversationID, nil
+	return nil
 }
 
 // SaveMessage 将一条消息写入数据库。

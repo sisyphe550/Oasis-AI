@@ -10,7 +10,6 @@ import (
 )
 
 // Handler 持有所有 HTTP 处理函数需要的依赖。
-// 通过结构体注入而非全局变量，方便测试时替换 mock。
 type Handler struct {
 	pipeline *orchestrator.PipelineEngine
 }
@@ -41,18 +40,17 @@ func (h *Handler) HandleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 将 HTTP 层类型映射为编排层类型（避免循环依赖的薄转换层）
+	// 将 HTTP 层类型映射为编排层类型（薄转换，不含任何业务逻辑）
 	pipeReq := orchestrator.PipelineRequest{
-		SessionID: req.SessionID,
-		ChainID:   req.ChainID,
-		Message:   req.Message,
+		SessionID:    req.SessionID,
+		SystemPrompt: req.SystemPrompt,
+		Message:      req.Message,
 	}
 
 	pipeResp, err := h.pipeline.ExecuteChain(r.Context(), pipeReq)
 	if err != nil {
 		log.Printf("ExecuteChain error: %v", err)
 
-		// 区分客户端错误（如输入为空）和服务端错误（如模型不可用）
 		status := http.StatusInternalServerError
 		msg := "pipeline execution failed"
 		if errors.Is(err, errInvalidInput) {

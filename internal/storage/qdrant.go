@@ -25,8 +25,9 @@ type VectorStore interface {
 	// UpsertMemory 将一条记忆文本及其向量写入或更新到集合中。
 	UpsertMemory(ctx context.Context, collection string, mem Memory) error
 
-	// SearchContext 根据查询向量，返回 Top-K 最相关的历史记忆。
-	SearchContext(ctx context.Context, collection string, vector []float64, topK int) ([]Memory, error)
+	// SearchContext 根据查询向量，在指定会话范围内返回 Top-K 最相关的历史记忆。
+	// conversationID 用于 Payload Filtering，确保不同会话的记忆严格隔离。
+	SearchContext(ctx context.Context, collection string, vector []float64, topK int, conversationID string) ([]Memory, error)
 }
 
 // Memory 代表一条可语义检索的记忆单元。
@@ -62,10 +63,27 @@ type qdrantUpsertRequest struct {
 	Points []qdrantPoint `json:"points"`
 }
 
+// qdrantMatch 对应 Qdrant Payload Filtering 的精确匹配条件。
+type qdrantMatch struct {
+	Value string `json:"value"`
+}
+
+// qdrantFieldCondition 代表一条 payload 字段过滤规则。
+type qdrantFieldCondition struct {
+	Key   string      `json:"key"`
+	Match qdrantMatch `json:"match"`
+}
+
+// qdrantFilter 对应 Qdrant 的 filter 对象，must 中的条件全部满足才会命中。
+type qdrantFilter struct {
+	Must []qdrantFieldCondition `json:"must"`
+}
+
 type qdrantSearchRequest struct {
-	Vector      []float64 `json:"vector"`
-	Limit       int       `json:"limit"`
-	WithPayload bool      `json:"with_payload"`
+	Vector      []float64     `json:"vector"`
+	Limit       int           `json:"limit"`
+	WithPayload bool          `json:"with_payload"`
+	Filter      *qdrantFilter `json:"filter,omitempty"` // nil 时不序列化，保持向后兼容
 }
 
 type qdrantSearchResult struct {
@@ -154,13 +172,25 @@ func (q *QdrantClient) UpsertMemory(ctx context.Context, collection string, mem 
 	return nil
 }
 
-// SearchContext 根据查询向量检索 Top-K 相关记忆，返回文本切片。
-// 结果按相似度由高到低排列。
-func (q *QdrantClient) SearchContext(ctx context.Context, collection string, vector []float64, topK int) ([]Memory, error) {
+// SearchContext 根据查询向量检索 Top-K 相关记忆，结果按相似度由高到低排列。
+// conversationID 非空时注入 Payload Filter，严格隔离不同会话的记忆，防止串戏。
+func (q *QdrantClient) SearchContext(ctx context.Context, collection string, vector []float64, topK int, conversationID string) ([]Memory, error) {
 	body := qdrantSearchRequest{
 		Vector:      vector,
 		Limit:       topK,
 		WithPayload: true,
+	}
+
+	// 仅当 conversationID 非空时才注入过滤条件，保持对无会话场景的向后兼容
+	if conversationID != "" {
+		body.Filter = &qdrantFilter{
+			Must: []qdrantFieldCondition{
+				{
+					Key:   "conversation_id",
+					Match: qdrantMatch{Value: conversationID},
+				},
+			},
+		}
 	}
 
 	path := fmt.Sprintf("/collections/%s/points/search", collection)
