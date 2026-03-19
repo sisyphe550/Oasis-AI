@@ -42,9 +42,11 @@ func (h *Handler) HandleChat(w http.ResponseWriter, r *http.Request) {
 
 	// 将 HTTP 层类型映射为编排层类型（薄转换，不含任何业务逻辑）
 	pipeReq := orchestrator.PipelineRequest{
-		SessionID:    req.SessionID,
-		SystemPrompt: req.SystemPrompt,
-		Message:      req.Message,
+		SessionID:      req.SessionID,
+		SystemPrompt:   req.SystemPrompt,
+		Message:        req.Message,
+		RouterModel:    req.RouterModel,
+		GeneratorModel: req.GeneratorModel,
 	}
 
 	pipeResp, err := h.pipeline.ExecuteChain(r.Context(), pipeReq)

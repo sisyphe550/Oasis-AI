@@ -73,10 +73,13 @@ func New(lm llm.LLMClient, vector storage.VectorStore, db storage.MessageStore, 
 
 // PipelineRequest 是编排引擎接收的输入。
 // SystemPrompt 为该会话的规则书，传空则沿用数据库中已保存的历史值。
+// RouterModel / GeneratorModel 传空则各自回落到 PipelineConfig 中的默认值。
 type PipelineRequest struct {
-	SessionID    string
-	SystemPrompt string // 会话绑定型规则书，由前端传入
-	Message      string
+	SessionID      string
+	SystemPrompt   string // 会话绑定型规则书，由前端传入
+	Message        string
+	RouterModel    string // 本次请求使用的模型A，空值代表使用后端默认
+	GeneratorModel string // 本次请求使用的模型B，空值代表使用后端默认
 }
 
 // PipelineResponse 是编排引擎返回的输出。
@@ -143,34 +146,44 @@ func (e *PipelineEngine) ExecuteChain(ctx context.Context, req PipelineRequest) 
 		log.Printf("[Pipeline]   memory[%d]: %s", i+1, m.Text)
 	}
 
+	// 动态决定本次请求实际使用的模型，前端指定优先，空值回落到后端默认配置
+	actualRouter := req.RouterModel
+	if actualRouter == "" {
+		actualRouter = e.cfg.RouterModel
+	}
+	actualGenerator := req.GeneratorModel
+	if actualGenerator == "" {
+		actualGenerator = e.cfg.GeneratorModel
+	}
+
 	// ── 步骤 D：组装 Prompt，调用模型 A 提取核心意图 ─────────────────────────
 	// 将世界书追加在意图提取指令之后，让模型 A 理解自定义的专有名词和世界观设定，
 	// 避免把"落日森林"、"新霓虹"之类的世界书词汇误判为"无相关历史记忆"。
 	intentResp, err := e.lm.GenerateCompletion(ctx, llm.CompletionRequest{
-		Model: e.cfg.RouterModel,
+		Model: actualRouter,
 		Messages: []llm.Message{
 			{Role: "system", Content: buildRouterSystemPrompt(systemPrompt)},
 			{Role: "user", Content: buildIntentPrompt(req.Message, memories)},
 		},
 	})
 	if err != nil {
-		return PipelineResponse{}, fmt.Errorf("step D model A (%s): %w", e.cfg.RouterModel, err)
+		return PipelineResponse{}, fmt.Errorf("step D model A (%s): %w", actualRouter, err)
 	}
 	compressedContext := intentResp.Message.Content
 
-	log.Printf("[Pipeline] step D: model A summary:\n%s", compressedContext)
+	log.Printf("[Pipeline] step D: model A (%s) summary:\n%s", actualRouter, compressedContext)
 
 	// ── 步骤 E：注入会话规则书，调用模型 B 生成最终回复 ──────────────────────
 	// systemPrompt 已在步骤 A 从数据库中确定（新设 / 继承 / 默认），直接注入。
 	finalResp, err := e.lm.GenerateCompletion(ctx, llm.CompletionRequest{
-		Model: e.cfg.GeneratorModel,
+		Model: actualGenerator,
 		Messages: []llm.Message{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: buildGeneratorPrompt(req.Message, compressedContext)},
 		},
 	})
 	if err != nil {
-		return PipelineResponse{}, fmt.Errorf("step E model B (%s): %w", e.cfg.GeneratorModel, err)
+		return PipelineResponse{}, fmt.Errorf("step E model B (%s): %w", actualGenerator, err)
 	}
 	reply := finalResp.Message.Content
 
@@ -194,7 +207,7 @@ func (e *PipelineEngine) ExecuteChain(ctx context.Context, req PipelineRequest) 
 
 	return PipelineResponse{
 		SessionID: sessionID,
-		Model:     e.cfg.GeneratorModel,
+		Model:     actualGenerator,
 		Content:   reply,
 	}, nil
 }
